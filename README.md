@@ -34,6 +34,26 @@ flowchart TD
 
 The visual dashboard is served only on a random `127.0.0.1` port by the same executable. It does not upload data or expose a public server. A hidden TunnelDesk runner supervises each OpenVPN process, allowing the terminal command to finish while the VPN continues running. The CLI waits for OpenVPN's real `Initialization Sequence Completed` signal before reporting a successful connection.
 
+## Download
+
+After the first release is published, download only `tunneldesk-windows-amd64.exe` from [GitHub Releases](https://github.com/Felipyan19/tunneldesk/releases). OpenVPN Community must still be installed separately.
+
+To verify the download in PowerShell:
+
+```powershell
+(Get-FileHash .\tunneldesk-windows-amd64.exe -Algorithm SHA256).Hash
+Get-Content .\SHA256SUMS.txt
+```
+
+Maintainers can publish a version without compiling locally:
+
+1. Open **Actions** → **Publish Windows release**.
+2. Choose **Run workflow**.
+3. Enter a semantic version such as `v0.1.0`.
+4. Download the executable from the automatically created GitHub Release.
+
+Do not publish a release until the executable has been tested against a non-production OpenVPN profile on Windows.
+
 ## Requirements
 
 - Windows 10 or Windows 11.
