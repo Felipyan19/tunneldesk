@@ -1,161 +1,196 @@
 # TunnelDesk
 
-A Windows desktop client and command-line interface for managing multiple OpenVPN profiles without repeatedly entering credentials.
+TunnelDesk is a hybrid Windows application for managing multiple OpenVPN profiles from either a visual dashboard or the terminal. Both interfaces use the same local profiles, encrypted credentials, connection state, and OpenVPN engine.
 
-> [!IMPORTANT]
-> TunnelDesk is currently in the design and early-development stage. The commands and architecture below describe the planned MVP.
+> [!NOTE]
+> This repository contains the first functional MVP. It is ready for development and testing with non-production profiles, but it is not yet a signed Windows installer.
 
-## The idea
+## What works
 
-TunnelDesk provides one place to import, manage, connect, and disconnect multiple OpenVPN profiles. Each profile keeps its own configuration and credentials locally on the Windows computer.
+- Import multiple `.ovpn` configurations under friendly profile names.
+- Save each profile's username and password encrypted with Windows DPAPI.
+- Connect, disconnect, inspect status, and read logs from the CLI.
+- Use the exact shortcut syntax `tunneldesk connect --work-vpn`.
+- Open a local visual dashboard by running `tunneldesk`.
+- Configure automatic VPN connection when the Windows user signs in.
+- Detect OpenVPN from `PATH` or its usual Windows installation folder.
+- Keep managed configurations, credentials, state, and logs under the user's local app data.
+- Redact authentication-related OpenVPN log entries.
+- Prevent duplicate runners for the same profile and isolate state by connection session.
+- Reconnect after an established tunnel drops when the profile policy enables it.
 
-Once a profile such as `motai` has been configured, connecting should be as simple as:
-
-```powershell
-tunneldesk connect --motai
-```
-
-TunnelDesk replaces the OpenVPN Connect user interface, but it still uses the OpenVPN engine and protocol underneath. It does not modify the remote VPN server or convert OpenVPN configurations to WireGuard.
-
-## Planned features
-
-- Import and manage multiple `.ovpn` profiles.
-- Connect or disconnect from the desktop app.
-- Connect, disconnect, and inspect status from the terminal.
-- Store credentials locally with Windows Credential Manager.
-- Enable or disable launch and connection at Windows startup per profile.
-- Run OpenVPN silently in the background.
-- Display connection state and readable logs.
-- Reconnect automatically after an unexpected disconnection.
-- Minimize the desktop app to the Windows system tray.
-- Keep VPN configuration and secrets on the local computer.
-
-## Example CLI
-
-```powershell
-# Profiles
-tunneldesk profile add motai --config "C:\VPN\motai.ovpn"
-tunneldesk profiles
-
-# Connection
-tunneldesk connect --motai
-tunneldesk disconnect --motai
-tunneldesk status --motai
-tunneldesk logs --motai
-
-# Windows startup
-tunneldesk autostart enable --motai
-tunneldesk autostart disable --motai
-```
-
-The project intentionally supports named flags such as `--motai` for quick daily use. A conventional positional form such as `tunneldesk connect motai` may also be supported later.
-
-## How it works
+## Architecture
 
 ```mermaid
 flowchart TD
-    User["Desktop UI or CLI"] --> Core["TunnelDesk core"]
-    Core --> Profiles["Local profile manager"]
-    Profiles --> Vault["Windows Credential Manager"]
-    Core --> Service["Privileged Windows service"]
-    Service --> Engine["OpenVPN engine"]
-    Engine --> Adapter["Virtual network adapter"]
+    User["Desktop UI or CLI"] --> Core["Shared TunnelDesk core"]
+    Core --> Profiles["Local profile store"]
+    Profiles --> DPAPI["Windows DPAPI vault"]
+    Core --> Runner["Hidden background runner"]
+    Runner --> OpenVPN["OpenVPN engine"]
+    OpenVPN --> Adapter["Virtual network adapter"]
     Adapter -->|Encrypted tunnel| Server["OpenVPN server"]
 ```
 
-1. The user imports an existing `.ovpn` configuration and assigns it a profile name.
-2. TunnelDesk saves non-secret profile metadata in the user's local application data.
-3. Credentials are stored through Windows Credential Manager instead of a plaintext configuration file.
-4. The desktop UI or CLI sends a local command to the TunnelDesk service.
-5. The service starts `openvpn.exe` with the selected profile and the required privileges.
-6. TunnelDesk reads the OpenVPN management interface or process output to report connection state and logs.
-7. On disconnect, the service stops the session and OpenVPN restores the affected routes.
-
-## Proposed architecture
-
-| Component | Responsibility |
-|---|---|
-| Desktop UI | Profile setup, connection controls, status, and logs |
-| CLI | Scriptable access to the same operations as the desktop UI |
-| Core | Profile validation, commands, state, and application rules |
-| Windows service | Privileged OpenVPN process and network control |
-| Credential store | Encrypted credentials scoped to the Windows user |
-| OpenVPN engine | Tunnel negotiation, encryption, routing, and adapter management |
-
-The UI and CLI will share the same core instead of implementing connection behavior twice.
-
-## Local security model
-
-TunnelDesk is designed around local-only operation:
-
-- No credentials are uploaded to a cloud service.
-- Passwords are not committed to the repository or stored in plaintext.
-- Secrets are retrieved only when a connection is started.
-- The local service accepts commands only from authorized Windows users.
-- Logs must redact passwords, private keys, and sensitive arguments.
-- Temporary authentication files, if required by OpenVPN, must use restricted permissions and be deleted immediately after use.
-- Imported profiles must never expose embedded private keys through the UI or logs.
-
-> [!WARNING]
-> An `.ovpn` file may contain certificates or private keys. Never publish a real company or personal VPN configuration in this repository.
-
-## Profile model
-
-A profile will contain metadata similar to:
-
-```json
-{
-  "name": "motai",
-  "configPath": "%LOCALAPPDATA%\\TunnelDesk\\profiles\\motai\\client.ovpn",
-  "autoStart": false,
-  "autoConnect": false,
-  "reconnect": true
-}
-```
-
-Credentials are deliberately excluded from this file. The profile stores only a reference to the corresponding Windows Credential Manager entry.
-
-## MVP roadmap
-
-- [ ] Define profile and configuration models.
-- [ ] Implement profile import and validation.
-- [ ] Integrate Windows Credential Manager.
-- [ ] Implement OpenVPN process lifecycle and status parsing.
-- [ ] Build the CLI and named profile flags.
-- [ ] Add the privileged Windows service.
-- [ ] Build the desktop interface and system tray.
-- [ ] Add startup and auto-connect configuration.
-- [ ] Add redacted structured logs.
-- [ ] Package and test the Windows installer.
-
-## Intended technology
-
-The initial implementation is planned in Go because it can produce small Windows binaries and share application logic between the service and CLI. The desktop interface can use Wails with a lightweight HTML, CSS, and JavaScript frontend.
-
-OpenVPN remains responsible for the VPN protocol. TunnelDesk focuses on secure credential handling, profile management, automation, and a better Windows experience.
+The visual dashboard is served only on a random `127.0.0.1` port by the same executable. It does not upload data or expose a public server. A hidden TunnelDesk runner supervises each OpenVPN process, allowing the terminal command to finish while the VPN continues running. The CLI waits for OpenVPN's real `Initialization Sequence Completed` signal before reporting a successful connection.
 
 ## Requirements
 
-The first version is expected to require:
-
 - Windows 10 or Windows 11.
-- A valid OpenVPN `.ovpn` configuration.
-- Access to an OpenVPN-compatible server.
-- Administrator approval during installation of the service and network components.
-- The OpenVPN engine and compatible virtual network adapter, bundled or detected by the installer.
+- Go 1.24 or later to build from source.
+- OpenVPN Community installed, including its virtual network adapter.
+- A valid `.ovpn` file and access to its VPN server.
+- User/password authentication for the current MVP.
 
-## Project goals
+TunnelDesk finds `openvpn.exe` from `PATH` and common installation locations. A custom path can be configured before launching it:
 
-TunnelDesk is intended to demonstrate practical experience with:
+```powershell
+$env:TUNNELDESK_OPENVPN = "C:\OpenVPN\bin\openvpn.exe"
+```
 
-- Go desktop and CLI development.
-- Windows services and process management.
-- Secure local credential storage.
-- VPN configuration and network lifecycle management.
-- Inter-process communication.
-- Structured logging and secret redaction.
-- Windows startup integration and application packaging.
+## Build
+
+```powershell
+go build -trimpath -o bin\tunneldesk.exe .\cmd\tunneldesk
+```
+
+Optionally copy `bin\tunneldesk.exe` to a directory included in `PATH`, so `tunneldesk` is available from any terminal.
+
+## First-time setup
+
+Import a configuration:
+
+```powershell
+tunneldesk profile add work-vpn --config "C:\VPN\work-vpn.ovpn"
+```
+
+Save its credentials. The password prompt is hidden and the resulting data is encrypted for the current Windows user:
+
+```powershell
+tunneldesk credentials set work-vpn
+```
+
+Connect:
+
+```powershell
+tunneldesk connect --work-vpn
+```
+
+## CLI reference
+
+```powershell
+# Open the visual dashboard
+tunneldesk
+
+# Profile management
+tunneldesk profile add work-vpn --config "C:\VPN\work-vpn.ovpn"
+tunneldesk profile remove work-vpn
+tunneldesk profiles
+
+# Credentials
+tunneldesk credentials set work-vpn
+
+# VPN connection
+tunneldesk connect --work-vpn
+tunneldesk status --work-vpn
+tunneldesk logs --work-vpn
+tunneldesk disconnect --work-vpn
+
+# Connect when the Windows user signs in
+tunneldesk autostart enable --work-vpn
+tunneldesk autostart disable --work-vpn
+```
+
+Named flags are intentional: `--work-vpn`, `--personal`, or `--client-a` selects the profile to operate.
+
+## Visual mode
+
+Run:
+
+```powershell
+tunneldesk
+```
+
+TunnelDesk opens a browser-based local desktop dashboard where you can:
+
+- Import profiles.
+- Enter encrypted credentials.
+- See connection status.
+- Connect and disconnect.
+
+The dashboard and terminal are not separate products. Importing `work-vpn` visually makes it immediately available to `tunneldesk connect --work-vpn`, and a profile imported in the terminal appears in the dashboard.
+
+## Local data and security
+
+TunnelDesk stores its files under:
+
+```text
+%LOCALAPPDATA%\TunnelDesk\
+```
+
+```text
+TunnelDesk
+└── profiles
+    └── work-vpn
+        ├── client.ovpn
+        ├── credentials.dpapi
+        ├── profile.json
+        ├── state.json
+        ├── connection.lock
+        └── openvpn.log
+```
+
+- `credentials.dpapi` can be decrypted only in the Windows user context that created it.
+- Passwords are never written into `profile.json`, command-line arguments, or logs.
+- OpenVPN receives credentials through standard input; TunnelDesk does not create a plaintext authentication file.
+- The OpenVPN option `auth-nocache` asks the engine not to retain credentials in memory after use.
+- The dashboard binds only to loopback, requires a random per-launch session cookie, checks the request host and origin, and adds restrictive browser security headers.
+- TunnelDesk verifies the executable path before stopping a stored PID, requests a graceful stop first, and force-stops only after a timeout.
+- Relative certificate and key paths continue to resolve from the directory where the imported `.ovpn` originated. Keep those referenced files in place.
+- Real `.ovpn`, certificate, key, DPAPI, state, and log files must never be committed.
+
+> [!WARNING]
+> An `.ovpn` file may contain embedded private keys. Never add a real company or personal profile to this repository.
+
+## Current limitations
+
+- Windows only for secure credential storage and VPN execution.
+- The visual mode currently opens in the default browser rather than a native Wails window.
+- Profiles that require MFA, interactive challenges, smart cards, or external browser login are not supported yet.
+- A Windows service, system tray support, installer signing, and split tunneling controls remain roadmap items.
+- Profiles with external certificates or keys depend on their original directory; moving those files after import breaks the profile.
+- OpenVPN and its adapter must already be installed.
+
+## Roadmap
+
+- [x] Shared profile model for GUI and CLI.
+- [x] Multiple named `.ovpn` profiles.
+- [x] DPAPI-encrypted credentials.
+- [x] Background OpenVPN runner.
+- [x] CLI with `--profile-name` shortcuts.
+- [x] Loopback-only visual dashboard.
+- [x] Per-profile Windows autostart.
+- [x] Session-aware state, duplicate-runner protection, and reconnection policy.
+- [x] Native Windows tests and Windows CI build.
+- [ ] Native Wails window and system tray.
+- [ ] Windows service with named-pipe IPC.
+- [ ] Rich health monitoring and configurable reconnect policy.
+- [ ] MFA and OpenVPN management-interface support.
+- [ ] Signed installer and automatic updates.
+
+## Development checks
+
+```powershell
+gofmt -w .
+go vet ./...
+go test -race ./...
+$env:GOOS = "windows"
+$env:GOARCH = "amd64"
+go build -trimpath -o bin\tunneldesk.exe .\cmd\tunneldesk
+```
+
+GitHub Actions runs formatting, vet, tests, and the race detector on both Linux and a native Windows runner. It also builds the Windows executable on every pull request.
 
 ## License
 
-A license has not been selected yet.
+[MIT](LICENSE)

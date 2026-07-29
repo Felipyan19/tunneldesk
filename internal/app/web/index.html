@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>TunnelDesk</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <header><div class="mark">T</div><div><h1>TunnelDesk</h1><p>Local OpenVPN control center</p></div></header>
+    <section class="card">
+      <div class="section-title"><h2>VPN profiles</h2><button id="refresh">Refresh</button></div>
+      <div id="profiles" class="profiles"></div>
+    </section>
+    <section class="card">
+      <h2>Import profile</h2>
+      <form id="import-form">
+        <label>Name<input name="name" placeholder="work-vpn" required pattern="[A-Za-z0-9_-]+"></label>
+        <label>Path to .ovpn<input name="configPath" placeholder="C:\VPN\client.ovpn" required></label>
+        <button type="submit" class="primary">Import</button>
+      </form>
+    </section>
+    <section id="credentials-card" class="card hidden">
+      <h2>Credentials for <span id="credential-name"></span></h2>
+      <form id="credentials-form">
+        <label>Username<input name="username" autocomplete="username" required></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+        <button type="submit" class="primary">Encrypt locally</button>
+      </form>
+    </section>
+    <p id="notice" role="status"></p>
+    <button id="quit" type="button">Exit TunnelDesk</button>
+  </main>
+  <script src="app.js"></script>
+</body>
+</html>
